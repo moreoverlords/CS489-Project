@@ -8,4 +8,5 @@ portaudio/portaudio-2.0.pc
 portaudio/Makefile
 portaudio/bin-stamp
 portaudio/config.*
+portaudio/examples
 *~
