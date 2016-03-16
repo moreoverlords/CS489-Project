@@ -9,4 +9,5 @@ portaudio/Makefile
 portaudio/bin-stamp
 portaudio/config.*
 portaudio/examples
+portaudio/test
 *~
