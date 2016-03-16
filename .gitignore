@@ -1,0 +1,11 @@
+portaudio/build
+portaudio/lib
+portaudio/src
+portaudio/bin
+portaudio/libtool
+portaudio/lib-stamp
+portaudio/portaudio-2.0.pc
+portaudio/Makefile
+portaudio/bin-stamp
+portaudio/config.*
+*~
