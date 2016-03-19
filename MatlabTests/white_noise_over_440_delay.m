@@ -19,6 +19,6 @@ noise=(rand(1,length(voice))-.5);            %white noise
 %noise=cos(2*pi*f2*t.^2)+cos(2*pi*t*((f2+200)/t));                       %2-frequency sweeps noise
 input=voice+noise;
 
-ref=noise;% +.25*(rand-0.5);                       %noisy noise
+ref=noise +.25*(rand-0.5);                       %noisy noise
 
-[antinoise, error] = NLMS(input, ref, 1, 0, 5);
+[antinoise, error] = NLMS(input, ref, .006, 1, 5);

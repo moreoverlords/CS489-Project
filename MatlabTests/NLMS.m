@@ -22,6 +22,7 @@ t=linspace(0, size, N);
 %f1=440;                                %frequency of voice
 %f2=500;                                %frequency of noise
 
+graph_range = N;%4410;
 %voice=cos(2*pi*f1*t);
 %subplot(5,1,1)
 %plot(t,voice);
@@ -33,13 +34,13 @@ t=linspace(0, size, N);
 %noise=cos(2*pi*f2*t.^2)+cos(2*pi*t*((f2+200)/t));                       %2-frequency sweeps noise
 %input=voice+noise;
 subplot(4,1,1)
-plot(t(1:4410),input(1:4410))
+plot(t(1:graph_range),input(1:graph_range))
 title('input = signal + noise   (interior mic)')
 audiowrite('input.wav', input, fs);
 
 %ref=noise +.25*(rand-0.5);                       %noisy noise
 subplot(4,1,2)
-plot(t(1:4410),ref(1:4410))
+plot(t(1:graph_range),ref(1:graph_range))
 title('reference  (noisy measurement of noise)   (exterior mic)');
 audiowrite('reference.wav', ref, fs);
 
@@ -60,13 +61,13 @@ for i=1:N-order
 end
 
 subplot(4,1,3)
-plot(t(order+1:4410),-antinoise(1:4410-order))
+plot(t(order+1:graph_range),-antinoise(1:graph_range-order))
 title('Anti-noise (added to isolate signal)')
 
 audiowrite('antinoise.wav', antinoise, fs);
 
 subplot(4,1,4)
-plot(t(order+1:4410),error(1:4410-order))
+plot(t(order+1:graph_range),error(1:graph_range-order))
 title('Adaptive output')
 
 audiowrite('error.wav', error, fs);

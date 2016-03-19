@@ -12,7 +12,7 @@ N=fs*size;                      %size of inputs
 f1=440;                                %frequency of voice
 f2=500;                                %frequency of noise
 
-voice=cos(2*pi*f1*t);
+voice=0*cos(2*pi*f1*t);
 
 %noise=cos(2*pi*f2*t.^2);                       %frequency sweep noise
 noise=(rand(1,length(voice))-.5);            %white noise

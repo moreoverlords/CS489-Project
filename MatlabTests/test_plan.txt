@@ -1,14 +1,12 @@
 what do we want to test?
 
-  white noise over a 440Hz sine wave
+  white noise over a 440Hz sine wave *
   
-  ref=noise (perfect measurement) to demonstrate mu=1 optimal in such cases
+  ref=noise (perfect measurement) to demonstrate mu=1 optimal in such cases *
 
-  square wave noise
-  
-  sawtooth wave noise
-
-  sine wave noise
+  square wave noise *
+ 
+  sine wave noise ?
 
   more complex signals/noises
     periodic and musical, crowd noise, car noise
