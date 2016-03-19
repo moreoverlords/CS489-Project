@@ -1,0 +1,19 @@
+what do we want to test?
+
+  white noise over a 440Hz sine wave
+  
+  ref=noise (perfect measurement) to demonstrate mu=1 optimal in such cases
+
+  square wave noise
+  
+  sawtooth wave noise
+
+  sine wave noise
+
+  more complex signals/noises
+    periodic and musical, crowd noise, car noise
+
+  different tap sizes
+
+  different delays, w/ different types of noise
+    exactly half-phase delay w/ clean periodic noise/signal, what happens? do things happen? let's find out

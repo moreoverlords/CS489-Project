@@ -30,7 +30,7 @@ audiowrite('input.wav', input, fs);
 ref=noise +.25*(rand-0.5);                       %noisy noise
 subplot(5,1,3)
 plot(t,ref)
-title('reference  (noisy noise)   (input2)');
+title('reference  (noisy measurement of noise)   (input2)');
 audiowrite('reference.wav', ref, fs);
 
 w=zeros(order,1);
