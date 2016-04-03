@@ -11,10 +11,89 @@
 #define M_PI (3.14159265)
 #endif
 
-/* This routine will be called by the PortAudio engine when audio is needed.
-** It may called at interrupt level on some machines so don't do anything
-** that could mess up the system like calling malloc() or free().
+// list of variables that are shared between streams
+// get ready for some gross concurrent code!
+static int taps = 32;
+static float mu = 0.06;
+static float noise[32]; static int noisePos = 0;
+static float estimate[32]; static int estPos = 0;
+static float error[32]; static int errPos = 0;
+
+/* routine for the outer mic
+** gathers sound and lets the other routines do the hard work
 */
+
+static int pa_outerMic( const void *inputBuffer, void *outputBuffer,
+                           unsigned long framesPerBuffer,
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData ) {
+		const float *in = (const float*)inputBuffer;
+		int i = 0;
+
+		for(i = 0; i < taps; i++) {
+			noise[noisePos] = *in++;			
+			// printf("noise: %f\n", error[errPos]); // avoid printing anything in the callback if possible
+			noisePos = (noisePos+1) % taps;
+		}
+		return paContinue; // keep running
+}
+
+
+/* routine for the inner mic
+** gathers sound and lets the other routines do the hard work
+*/
+
+static int pa_innerMic( const void *inputBuffer, void *outputBuffer,
+                           unsigned long framesPerBuffer,
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData ) {
+		const float *in = (const float*)inputBuffer;
+		int i = 0;
+
+		for(i = 0; i < taps; i++) {
+			error[errPos] = (*in++) *-1; // any sound we hear now is an error
+			errPos = (errPos+1) % taps;
+		}
+
+		return paContinue; // keep running
+}
+
+/* routine for the headphone output
+** Takes the input from the mics and estimates anti-noise to output
+*/
+static int pa_headphones( const void *inputBuffer, void *outputBuffer,
+                           unsigned long framesPerBuffer,
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData ) {
+		float *out = (float*)outputBuffer;
+		int i = 0;
+		int j = 0;
+
+		for(i = 0; i < taps; i++) {
+			//calculate the denominator of the NLMS step
+			float denom = 0.000001;
+			for(j = 0; j < taps; j++) {
+				denom += noise[(noisePos+j)%taps] * noise[(noisePos+j)%taps];
+			}
+
+			// calculate and play the new output
+			estimate[(estPos+1)%taps] = estimate[estPos%taps]
+																		+(mu * error[estPos%taps]) / denom;
+			estPos++;
+			
+			*out++ = estimate[estPos%taps];	// we have two-channel output
+			*out++ = estimate[estPos%taps];	// make sure to copy the sound to both ears
+
+		}
+
+		return paContinue; // keep running
+}
+
+
+/*
 static int pa_NLMS( const void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
                            const PaStreamCallbackTimeInfo* timeInfo,
@@ -25,95 +104,148 @@ static int pa_NLMS( const void *inputBuffer, void *outputBuffer,
 		const float *in = (const float*)inputBuffer;
     int i;
     int framesToCalc;
-    int finished = 0;
 
 		if( inputBuffer == NULL )
 		{
 			for( i=0; i<framesPerBuffer; i++ ){
-				*out++ = 0;  /* left - silent */
-				*out++ = 0;  /* right - silent */
+				*out++ = 0;  // left - silent 
+				*out++ = 0;  // right - silent
 			}
 		}else {
 			for( i=0; i<framesPerBuffer; i++ ){
-				*out++ = *in++;  /* left - distorted */
-				*out++ = *in++;          /* right - clean */
+				*out++ = *in++;  // left - distorted
+				*out++ = *in++;  // right - clean
 			}
 		}
 
     return paContinue; // keep playing indefinitely
-}
+}*/
 
 /*******************************************************************/
 int main(void);
 int main(void)
 {
-    PaStreamParameters  outputParameters;
-    PaStreamParameters  inputParameters;
-    PaStream*           stream;
+    PaStreamParameters  headphones;
+    PaStreamParameters  outerMic;
+    PaStreamParameters  innerMic;
+    PaStream*           noiseStream;
+		PaStream*           outputStream;
+		PaStream*           errorStream;
     PaError             err;
     PaTime              streamOpened;
     int                 i, totalSamps;
-    
+
+		// initialization
     err = Pa_Initialize();
     if( err != paNoError )
         goto error;
 
-    outputParameters.device = Pa_GetDefaultOutputDevice(); /* Default output device. */
-    if (outputParameters.device == paNoDevice) {
+		for(i = 0; i < taps; i++) {noise[i] = 0;}
+		for(i = 0; i < taps; i++) {estimate[i] = 0;}
+		for(i = 0; i < taps; i++) {error[i] = 0;}
+
+		// info for anti-noise output
+    headphones.device = Pa_GetDefaultOutputDevice(); /* Default output device. */
+    if (headphones.device == paNoDevice) {
       fprintf(stderr,"Error: No default output device.\n");
       goto error;
     }
-    outputParameters.channelCount = 2;                     /* Stereo output. */
-    outputParameters.sampleFormat = paFloat32;
-    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
-    outputParameters.hostApiSpecificStreamInfo = NULL;
+    headphones.channelCount = 2;                     /* Stereo output. */
+    headphones.sampleFormat = paFloat32;
+    headphones.suggestedLatency = Pa_GetDeviceInfo( headphones.device )->defaultLowOutputLatency;
+    headphones.hostApiSpecificStreamInfo = NULL;
     
-		inputParameters.device = Pa_GetDefaultInputDevice(); /* Default input device. */
-    if (inputParameters.device == paNoDevice) {
+		// info for the noise reference mic
+		outerMic.device = Pa_GetDefaultInputDevice(); /* Default input device. */
+    if (outerMic.device == paNoDevice) {
       fprintf(stderr,"Error: No default in device.\n");
       goto error;
     }
-		inputParameters.channelCount = 2;
-    inputParameters.sampleFormat = paFloat32;
-    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
-    inputParameters.hostApiSpecificStreamInfo = NULL;
+		outerMic.channelCount = 1;
+    outerMic.sampleFormat = paFloat32;
+    outerMic.suggestedLatency = Pa_GetDeviceInfo( outerMic.device )->defaultLowInputLatency;
+    outerMic.hostApiSpecificStreamInfo = NULL;
+
+		// info for the error reference mic
+		innerMic.device = 1; /* hopefully the usb mic */
+    if (innerMic.device == paNoDevice) {
+      fprintf(stderr,"Error: No default in device.\n");
+      goto error;
+    }
+		innerMic.channelCount = 1;
+    innerMic.sampleFormat = paFloat32;
+    innerMic.suggestedLatency = Pa_GetDeviceInfo( innerMic.device )->defaultLowInputLatency;
+    innerMic.hostApiSpecificStreamInfo = NULL;
     
 
-		err = Pa_OpenStream( &stream,
-                         &inputParameters,
-                         &outputParameters,
+		// create the outer mic stream
+		err = Pa_OpenStream( &noiseStream,
+                         &outerMic,
+                         NULL,
                          SAMPLE_RATE,
-                         256,       /* Frames per buffer. */
+                         taps,       /* Frames per buffer. */
                          paClipOff,
-                         pa_NLMS,
+                         pa_outerMic,
 												 NULL);
     if( err != paNoError )
         goto error;
 
-    streamOpened = Pa_GetStreamTime( stream ); /* Time in seconds when stream was opened (approx). */
+		// create the inner mic stream
+		err = Pa_OpenStream( &errorStream,
+                         &innerMic,
+                         NULL,
+                         SAMPLE_RATE,
+                         taps,       /* Frames per buffer. */
+                         paClipOff,
+                         pa_innerMic,
+												 NULL);
+    if( err != paNoError )
+        goto error;
+
+		// create the headphone stream
+		err = Pa_OpenStream( &outputStream,
+                         NULL,
+                         &headphones,
+                         SAMPLE_RATE,
+                         taps,       /* Frames per buffer. */
+                         paClipOff,
+                         pa_headphones,
+												 NULL);
+    if( err != paNoError )
+        goto error;
 
 		printf("Starting Stream.\n");
-    err = Pa_StartStream( stream );
+    err = Pa_StartStream( noiseStream );
+    if( err != paNoError )
+        goto error;
+		printf("Starting Stream.\n");
+    err = Pa_StartStream( errorStream );
+    if( err != paNoError )
+        goto error;
+		printf("Starting Stream.\n");
+    err = Pa_StartStream( outputStream );
     if( err != paNoError )
         goto error;
 		
-		//printf("Pausing Stream.\n");
-    /* Watch until sound is halfway finished. */
-    /* (Was ( Pa_StreamTime( stream ) < (totalSamps/2) ) in V18. */
-    //while( (Pa_GetStreamTime( stream ) - streamOpened) < (PaTime)NUM_SECONDS / 2.0 )
-        //Pa_Sleep(10);
+    printf("Running...\n");
 
-
-    printf("Waiting for sound to finish.\n");
-
-    while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
+   while( ( err = Pa_IsStreamActive( noiseStream ) ) == 1 )
         Pa_Sleep(100);
     if( err < 0 )
         goto error;
+	 
 
-    err = Pa_CloseStream( stream );
+		// close the streams
+    err = Pa_CloseStream( noiseStream );
     if( err != paNoError )
         goto error;
+    err = Pa_CloseStream( errorStream );
+    if( err != paNoError )
+        goto error;
+    err = Pa_CloseStream( outputStream );
+    if( err != paNoError )
+        goto error;
+
 
     Pa_Terminate();
     printf("Test finished.\n");
