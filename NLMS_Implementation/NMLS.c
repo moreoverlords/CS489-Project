@@ -13,11 +13,11 @@
 
 // list of variables that are shared between streams
 // get ready for some gross concurrent code!
-static int taps = 32;
+static int taps = 8;
 static float mu = 0.06;
-static float noise[32]; static int noisePos = 0;
-static float estimate[32]; static int estPos = 0;
-static float error[32]; static int errPos = 0;
+static float noise[8]; static int noisePos = 0;
+static float estimate[8]; static int estPos = 0;
+static float error[8]; static int errPos = 0;
 
 /* routine for the outer mic
 ** gathers sound and lets the other routines do the hard work
@@ -33,7 +33,7 @@ static int pa_outerMic( const void *inputBuffer, void *outputBuffer,
 
 		for(i = 0; i < taps; i++) {
 			noise[noisePos] = *in++;			
-			// printf("noise: %f\n", error[errPos]); // avoid printing anything in the callback if possible
+			//printf("noise: %f\n", noise[noisePos]); // avoid printing anything in the callback if possible
 			noisePos = (noisePos+1) % taps;
 		}
 		return paContinue; // keep running
@@ -54,6 +54,7 @@ static int pa_innerMic( const void *inputBuffer, void *outputBuffer,
 
 		for(i = 0; i < taps; i++) {
 			error[errPos] = (*in++) *-1; // any sound we hear now is an error
+			//printf("error: %f\n", error[errPos]);
 			errPos = (errPos+1) % taps;
 		}
 
@@ -82,6 +83,7 @@ static int pa_headphones( const void *inputBuffer, void *outputBuffer,
 			// calculate and play the new output
 			estimate[(estPos+1)%taps] = estimate[estPos%taps]
 																		+(mu * error[estPos%taps]) / denom;
+			//printf("estimate: %f\n", estimate[(estPos+1)%taps]);
 			estPos++;
 			
 			*out++ = estimate[estPos%taps];	// we have two-channel output
@@ -140,9 +142,9 @@ int main(void)
     if( err != paNoError )
         goto error;
 
-		for(i = 0; i < taps; i++) {noise[i] = 0;}
-		for(i = 0; i < taps; i++) {estimate[i] = 0;}
-		for(i = 0; i < taps; i++) {error[i] = 0;}
+		for(i = 0; i < taps; i++) {noise[i] = 0.00001;}
+		for(i = 0; i < taps; i++) {estimate[i] = 0.00001;}
+		for(i = 0; i < taps; i++) {error[i] = 0.00001;}
 
 		// info for anti-noise output
     headphones.device = Pa_GetDefaultOutputDevice(); /* Default output device. */
@@ -167,7 +169,7 @@ int main(void)
     outerMic.hostApiSpecificStreamInfo = NULL;
 
 		// info for the error reference mic
-		innerMic.device = 1; /* hopefully the usb mic */
+		innerMic.device = 5; /* hopefully the usb mic */
     if (innerMic.device == paNoDevice) {
       fprintf(stderr,"Error: No default in device.\n");
       goto error;
@@ -229,7 +231,9 @@ int main(void)
 		
     printf("Running...\n");
 
-   while( ( err = Pa_IsStreamActive( noiseStream ) ) == 1 )
+   while( ( err = Pa_IsStreamActive( noiseStream ) ) == 1 &&
+					( err = Pa_IsStreamActive( errorStream ) ) == 1 &&
+					( err = Pa_IsStreamActive( outputStream ) ) == 1)
         Pa_Sleep(100);
     if( err < 0 )
         goto error;
