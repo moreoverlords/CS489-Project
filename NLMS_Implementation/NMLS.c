@@ -2,10 +2,7 @@
 #include <math.h>
 #include "include/portaudio.h"
 
-#define NUM_SECONDS   (8)
 #define SAMPLE_RATE   (44100)
-#define TABLE_SIZE    (200)
-#define TEST_UNSIGNED (0)
 
 #ifndef M_PI
 #define M_PI (3.14159265)
@@ -15,6 +12,60 @@
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
+#define TAPS					(512)
+#define MU						(0.006)
+
+static float buffer[TAPS];
+static int sampleCount = 0;
+static bool readyToStart;
+
+static float w[TAPS];
+
+
+/*static float* orderBuffer() {
+	float newBuffer[TAPS];
+	int newBufferPos = 0;
+
+	for(int i = buffer_head+1; i < TAPS; i++, newBufferPos++) {
+		newBuffer[newBufferPos] = buffer[i];
+	}
+
+	for(int i = 0; i <= buffer_head && i < TAPS; i++, newBufferPos++) {
+		newBuffer[newBufferPos] = buffer[i];
+	}
+	
+	return newBuffer;
+}*/
+
+static void insertToBuffer(float newVal) {
+
+	for(int i = 0; i < TAPS-1; i++) {
+		buffer[i] = buffer[i+1];
+	}
+	buffer[TAPS-1] = newVal;
+
+}
+
+static float dotProd(float* a, float* b, int size) {
+	float result = 0;
+
+	for(int i = 0; i < size; i++) {
+		result += a[i] * b[i];
+	}
+
+	return result;
+}
+
+static float magnitudeSquared(float* a, int size) {
+	float result;
+
+	for(int i = 0; i < size; i++) {
+		result += a[i] * a[i];
+	}
+
+	return result;
+}
+
 static int pa_NLMS( const void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
                            const PaStreamCallbackTimeInfo* timeInfo,
@@ -27,19 +78,53 @@ static int pa_NLMS( const void *inputBuffer, void *outputBuffer,
     int framesToCalc;
     int finished = 0;
 
-		if( inputBuffer == NULL )
+
+		if(in == NULL)
 		{
 			for( i=0; i<framesPerBuffer; i++ ){
 				*out++ = 0;  /* left - silent */
 				*out++ = 0;  /* right - silent */
 			}
-		}else {
+		} else {
+
 			for( i=0; i<framesPerBuffer; i++ ){
-				*out++ = *in++;  /* left - distorted */
-				*out++ = *in++;          /* right - clean */
+
+				insertToBuffer(*in);
+				if(readyToStart) {
+					float antinoise = dotProd(buffer, w, TAPS);
+					float error = buffer[TAPS-1] - antinoise;
+
+					float weightTerm = MU * error / magnitudeSquared(buffer,TAPS);
+
+					for(int j = 0; j < TAPS; j++) {
+						w[j] = w[j] + buffer[j] * weightTerm;
+					}
+					
+					//printf("antinoise: %f\n", antinoise);
+					if(antinoise > 1.0) {
+						// we've gone off the rails!
+						// time to bring it back in
+						antinoise = 0.0;
+						for(int j = 0; j < TAPS; j++) {
+							w[j] = 0.0;
+						}
+					}
+
+					*out++ = antinoise;
+					*out++ = antinoise;
+
+				} else {
+					*out++ = 0;  /* left  */
+					*out++ = 0;  /* right */
+				}
+
+				if(!readyToStart && sampleCount >= TAPS-1) {
+						readyToStart = true;
+				} else {
+					sampleCount = sampleCount+1;		
+				}			
 			}
 		}
-
     return paContinue; // keep playing indefinitely
 }
 
@@ -54,6 +139,12 @@ int main(void)
     PaTime              streamOpened;
     int                 i, totalSamps;
     
+		// initialize arrays
+		for(i = 0; i < TAPS; i++) {
+			buffer[i] = 0.0000001;
+			w[i] = 0.0;
+		}
+
     err = Pa_Initialize();
     if( err != paNoError )
         goto error;
@@ -65,7 +156,7 @@ int main(void)
     }
     outputParameters.channelCount = 2;                     /* Stereo output. */
     outputParameters.sampleFormat = paFloat32;
-    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.suggestedLatency = 2*Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
     outputParameters.hostApiSpecificStreamInfo = NULL;
     
 		inputParameters.device = Pa_GetDefaultInputDevice(); /* Default input device. */
@@ -73,9 +164,9 @@ int main(void)
       fprintf(stderr,"Error: No default in device.\n");
       goto error;
     }
-		inputParameters.channelCount = 2;
+		inputParameters.channelCount = 1;
     inputParameters.sampleFormat = paFloat32;
-    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
+    inputParameters.suggestedLatency = 2*Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = NULL;
     
 
@@ -83,7 +174,7 @@ int main(void)
                          &inputParameters,
                          &outputParameters,
                          SAMPLE_RATE,
-                         256,       /* Frames per buffer. */
+                         8,       /* Frames per buffer. */
                          paClipOff,
                          pa_NLMS,
 												 NULL);
@@ -110,7 +201,7 @@ int main(void)
         Pa_Sleep(100);
     if( err < 0 )
         goto error;
-
+		
     err = Pa_CloseStream( stream );
     if( err != paNoError )
         goto error;
